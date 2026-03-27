@@ -1,0 +1,31 @@
+VPS operations (Ollama + agent)
+
+1) Firewall
+   - Allow SSH (22) and HTTPS (443) if using Caddy/nginx in front.
+   - Do not expose Ollama (11434) publicly; bind to 127.0.0.1 as in docker-compose.
+
+2) Docker Compose (from repo root)
+   - cp .env.example .env  # set MCP_URL, MCP_TRANSPORT, auth
+   - cd deploy && docker compose up -d --build
+   - docker compose exec ollama ollama pull <OLLAMA_MODEL>
+
+3) Systemd (no Docker for the agent)
+   - Install Ollama per https://ollama.com/download
+   - Deploy code to /opt/ollama-mcp-agent, create venv, pip install -e .
+   - Copy deploy/systemd/ollama-mcp-agent.service to /etc/systemd/system/
+   - Put environment in /etc/ollama-mcp-agent.env (same variables as .env.example)
+   - systemctl daemon-reload && systemctl enable --now ollama-mcp-agent
+
+4) TLS
+   - Use deploy/Caddyfile.example or equivalent nginx config terminating TLS and proxying to 127.0.0.1:8080.
+
+5) Health
+   - curl -s http://127.0.0.1:8080/health
+
+6) MCP still 401 (OpenShop)
+   - Run: python scripts/verify_mcp_env.py (from repo root, venv on). Cookie length should be ~50+ if activitySessionId=uuid.
+   - Quote long values in .env: MCP_COOKIE="activitySessionId=full-uuid-here"
+   - Invalid Bearer can still 401: try cookie-only: MCP_DISABLE_BEARER=1 (restart agent).
+   - Try slug off: MCP_DISABLE_STORE_SLUG=1
+   - Try MCP_TRANSPORT=sse if streamable-http always 401 (same URL).
+   - Direct MCP must match what Network tab sends to https://mcp.openshopgo.com — not Claude cookies.

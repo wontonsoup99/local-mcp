@@ -1,0 +1,45 @@
+"""Connect to a remote MCP server over streamable HTTP or SSE."""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+import httpx
+from mcp import ClientSession
+from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamable_http_client
+
+from agent_service.config import Settings
+
+
+@asynccontextmanager
+async def mcp_client_session(settings: Settings) -> AsyncIterator[ClientSession]:
+    """Initialize MCP and yield a connected ``ClientSession``."""
+    headers = settings.merged_mcp_headers()
+
+    if settings.mcp_transport == "streamable-http":
+        timeout = httpx.Timeout(60.0, read=300.0)
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            headers=headers if headers else None,
+        ) as http_client:
+            async with streamable_http_client(
+                settings.mcp_url,
+                http_client=http_client,
+            ) as streams:
+                read_stream, write_stream, _ = streams
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+                    yield session
+    else:
+        async with sse_client(
+            settings.mcp_url,
+            headers=headers or None,
+            timeout=60.0,
+            sse_read_timeout=300.0,
+        ) as streams:
+            read_stream, write_stream = streams
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                yield session

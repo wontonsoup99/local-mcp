@@ -1,0 +1,31 @@
+# Ollama + agent on a VPS. Copy .env from repo root (see .env.example).
+# Pull a model after first start: docker compose exec ollama ollama pull llama3.2
+
+name: ollama-mcp
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "127.0.0.1:11434:11434"
+
+  agent:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434/v1
+    depends_on:
+      - ollama
+    ports:
+      - "127.0.0.1:8080:8080"
+
+volumes:
+  ollama_data:

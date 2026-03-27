@@ -1,0 +1,7 @@
+# Replace agent.example.com and point TLS at your VPS.
+# Install Caddy on the host; keep the agent bound to 127.0.0.1:8080 (see docker-compose).
+
+agent.example.com {
+	encode gzip
+	reverse_proxy 127.0.0.1:8080
+}

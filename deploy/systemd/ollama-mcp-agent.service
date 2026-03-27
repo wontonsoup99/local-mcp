@@ -1,0 +1,21 @@
+[Unit]
+Description=Ollama MCP Agent (HTTP API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ollama-mcp
+Group=ollama-mcp
+WorkingDirectory=/opt/ollama-mcp-agent
+EnvironmentFile=-/etc/ollama-mcp-agent.env
+ExecStart=/opt/ollama-mcp-agent/.venv/bin/python -m agent_service.main
+Restart=on-failure
+RestartSec=5
+
+# Hardening (tune for your distro)
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
