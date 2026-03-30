@@ -121,7 +121,7 @@ class Settings(BaseSettings):
     system_prompt: str | None = Field(
         default=None,
         validation_alias="SYSTEM_PROMPT",
-        description="Default system prompt used when /chat request omits 'system'.",
+        description="Overrides default admin prompt when /chat omits JSON 'system'.",
     )
 
     expose_mcp_healthcheck: bool = Field(

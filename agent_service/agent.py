@@ -12,8 +12,18 @@ from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
 from agent_service.config import Settings
+from agent_service.prompts import DEFAULT_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_system_prompt(settings: Settings, override: str | None) -> str:
+    """Per-request override, then env SYSTEM_PROMPT, then default admin prompt."""
+    if override is not None and override.strip():
+        return override.strip()
+    if settings.system_prompt and str(settings.system_prompt).strip():
+        return str(settings.system_prompt).strip()
+    return DEFAULT_SYSTEM_PROMPT
 
 
 def _mcp_tools_to_openai(tools_response: Any) -> list[dict[str, Any]]:
@@ -66,8 +76,9 @@ async def run_agent_turn(
         logger.warning("MCP server returned no tools; model will run without tools.")
 
     messages: list[ChatCompletionMessageParam] = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
+    messages.append(
+        {"role": "system", "content": resolve_system_prompt(settings, system_prompt)},
+    )
     messages.append({"role": "user", "content": user_message})
 
     for round_idx in range(settings.max_tool_rounds):
