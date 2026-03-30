@@ -8,6 +8,7 @@ import os
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
+from fastapi.responses import HTMLResponse
 
 from agent_service.agent import run_agent_turn
 from agent_service.config import get_settings
@@ -35,10 +36,11 @@ class ChatResponse(BaseModel):
     reply: str
 
 
-@app.get("/", response_class=None)
-async def index() -> str:
+@app.get("/", response_class=HTMLResponse)
+async def index() -> HTMLResponse:
     """Very basic web UI (no auth, calls POST /chat)."""
-    return """
+    return HTMLResponse(
+        """
 <!doctype html>
 <html>
   <head>
@@ -102,7 +104,8 @@ async def index() -> str:
     </script>
   </body>
 </html>
-"""
+        """
+    )
 
 
 @app.get("/health")
