@@ -71,7 +71,7 @@ async def chat(body: ChatBody) -> ChatResponse:
                 settings=settings,
                 session=mcp_session,
                 user_message=body.message,
-                system_prompt=body.system,
+                system_prompt=body.system or settings.system_prompt,
             )
     except Exception as exc:
         detail = format_exception_chain(exc)

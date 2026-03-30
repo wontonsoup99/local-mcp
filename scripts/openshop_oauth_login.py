@@ -98,16 +98,31 @@ def main() -> None:
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt: str, *args: object) -> None:
-            pass
+            print(f"[oauth-callback] {fmt % args}", file=sys.stderr)
 
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
+            q = parse_qs(parsed.query)
             req_path = parsed.path.rstrip("/") or "/"
             want = callback_path.rstrip("/") or "/"
-            if req_path != want:
-                self.send_error(404)
+
+            # Accept OAuth params on any path if present (some browsers strip path quirks).
+            if "code" not in q and "error" not in q:
+                self.send_response(404)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(
+                    f"Expected OAuth redirect with ?code= or ?error=. "
+                    f"This request had path {req_path!r}; configured callback path is {want!r}.\n".encode()
+                )
                 return
-            q = parse_qs(parsed.query)
+            if req_path != want:
+                print(
+                    f"Warning: path {req_path!r} != expected {want!r}; still processing ?code (len={len(q.get('code', []))}).",
+                    file=sys.stderr,
+                )
+
+            print("Received OAuth redirect (code or error in query).", file=sys.stderr)
             if "error" in q:
                 result["error"] = q.get("error", ["unknown"])[0]
                 result["error_description"] = (q.get("error_description") or [None])[0]
@@ -132,12 +147,28 @@ def main() -> None:
     t.start()
     time.sleep(0.4)
 
+    print(
+        f"Waiting for browser to redirect to EXACTLY:\n  {redirect_uri}\n"
+        "If the address bar shows claude.ai or another host after login, OpenShop sent "
+        "the code elsewhere — this script never receives it. Use OPENSHOP_REDIRECT_URI "
+        "that is registered for your client_id (default: Claude Desktop localhost).\n",
+        file=sys.stderr,
+    )
     print("Opening browser. If it does not open, paste this URL:\n")
     print(auth_url, "\n")
     webbrowser.open(auth_url)
 
     if not done.wait(timeout=600):
-        print("Timed out waiting for OAuth redirect (10 min).", file=sys.stderr)
+        print(
+            "\nTimed out (10 min) with no redirect to this machine.\n"
+            "Common causes:\n"
+            "  • Browser opened a different redirect (e.g. https://claude.ai/...) — only that app gets the code.\n"
+            "  • OPENSHOP_REDIRECT_URI must match the authorize URL and be registered on the server.\n"
+            "  • Firewall blocked localhost:6274.\n"
+            "  • Try: export OPENSHOP_REDIRECT_URI=http://127.0.0.1:6274/oauth/callback\n"
+            "    and run again (must match what OpenShop registered for openshop-claude).\n",
+            file=sys.stderr,
+        )
         server.shutdown()
         sys.exit(1)
 
@@ -164,6 +195,7 @@ def main() -> None:
         print("State mismatch — aborting.", file=sys.stderr)
         sys.exit(1)
 
+    print("Exchanging code at POST /oauth/token ...", file=sys.stderr)
     body = {
         "grant_type": "authorization_code",
         "code": code,

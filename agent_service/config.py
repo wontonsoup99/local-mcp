@@ -100,6 +100,11 @@ class Settings(BaseSettings):
 
     # --- Agent loop ---
     max_tool_rounds: int = Field(default=16, validation_alias="MAX_TOOL_ROUNDS")
+    system_prompt: str | None = Field(
+        default=None,
+        validation_alias="SYSTEM_PROMPT",
+        description="Default system prompt used when /chat request omits 'system'.",
+    )
 
     expose_mcp_healthcheck: bool = Field(
         default=False,
@@ -107,9 +112,9 @@ class Settings(BaseSettings):
         description="If true, GET /health/mcp probes MCP connect (for debugging only).",
     )
 
-    @field_validator("mcp_cookie", mode="before")
+    @field_validator("mcp_cookie", "system_prompt", mode="before")
     @classmethod
-    def strip_cookie(cls, v: str | None) -> str | None:
+    def strip_optional_text(cls, v: str | None) -> str | None:
         if v is None:
             return None
         s = str(v).strip()
