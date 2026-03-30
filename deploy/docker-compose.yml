@@ -1,16 +1,21 @@
-# Ollama + agent on a VPS. Copy .env from repo root (see .env.example).
-# Pull a model after first start: docker compose exec ollama ollama pull llama3.2
+# Ollama + agent. From deploy/: docker compose up -d --build
+# Pull a model: docker compose exec ollama ollama pull llama3.2
+#
+# GPU: requires NVIDIA Container Toolkit. On CPU-only hosts, remove the `gpus` line below.
+# Ollama port: "11434:11434" exposes the API on all interfaces; use "127.0.0.1:11434:11434" to bind localhost only.
 
 name: ollama-mcp
 
 services:
   ollama:
     image: ollama/ollama:latest
+    container_name: ollama
     restart: unless-stopped
+    gpus: all
     volumes:
-      - ollama_data:/root/.ollama
+      - ollama:/root/.ollama
     ports:
-      - "127.0.0.1:11434:11434"
+      - "11434:11434"
 
   agent:
     build:
@@ -27,16 +32,13 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
 
-  # Optional web UI for Ollama (+ MCP configured inside Open WebUI). Enable with:
-  #   cd deploy && WEBUI_SECRET_KEY="$(openssl rand -hex 32)" docker compose --profile webui up -d
-  # Or put WEBUI_SECRET_KEY in deploy/.env (Compose loads .env next to this file for variable substitution).
+  # Optional: docker compose --profile webui up -d
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
     profiles: ["webui"]
     restart: unless-stopped
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
-      # Required for stable sessions; OAuth-connected MCP tools need this not to reset on restart.
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-change-me-use-openssl-rand-hex-32}
     volumes:
       - open_webui_data:/app/backend/data
@@ -46,5 +48,5 @@ services:
       - ollama
 
 volumes:
-  ollama_data:
+  ollama:
   open_webui_data:
