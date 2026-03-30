@@ -73,6 +73,7 @@ async def run_agent_turn(
     listed = await session.list_tools()
     tools = _mcp_tools_to_openai(listed)
     available_tool_names = {t.name for t in listed.tools}
+    tool_defs_by_name = {t.name: t for t in listed.tools}
     if not tools:
         logger.warning("MCP server returned no tools; model will run without tools.")
 
@@ -130,6 +131,37 @@ async def run_agent_turn(
             except json.JSONDecodeError:
                 logger.warning("Invalid JSON tool arguments from model; using empty dict.")
                 args = {}
+
+            # Guardrail: validate required arguments using the tool's JSON schema.
+            # This prevents calling get_* tools with missing/null IDs (a common failure mode).
+            tool_def = tool_defs_by_name.get(name)
+            required_fields: list[str] = []
+            if tool_def and getattr(tool_def, "inputSchema", None):
+                schema_obj = tool_def.inputSchema
+                if isinstance(schema_obj, dict):
+                    req = schema_obj.get("required")
+                    if isinstance(req, list):
+                        required_fields = [str(x) for x in req if x is not None]
+
+            missing_required = [
+                f
+                for f in required_fields
+                if (f not in args) or args.get(f) is None
+            ]
+            if missing_required:
+                text = (
+                    f"Cannot call tool '{name}' because required argument(s) are missing/null: "
+                    f"{', '.join(missing_required)}. "
+                    "Use the available list_* tools to obtain those IDs/values first, then retry."
+                )
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": text,
+                    }
+                )
+                continue
             try:
                 tr = await session.call_tool(name, args)
                 text = _format_tool_result(tr)
@@ -145,11 +177,10 @@ async def run_agent_turn(
                 }
             )
 
-        if round_idx == settings.max_tool_rounds - 1:
-            final = await oai.chat.completions.create(
-                model=settings.ollama_model,
-                messages=messages,
-            )
-            return (final.choices[0].message.content or "").strip() or ""
-
-    return ""
+    # Tool-round budget exhausted. Ask the model to produce an answer based on
+    # the tool results we already have (without requesting further tool calls).
+    final = await oai.chat.completions.create(
+        model=settings.ollama_model,
+        messages=messages,
+    )
+    return (final.choices[0].message.content or "").strip() or ""
