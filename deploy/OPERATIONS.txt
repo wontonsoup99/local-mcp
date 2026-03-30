@@ -8,6 +8,9 @@ VPS operations (Ollama + agent)
    - cp .env.example .env  # set MCP_URL, MCP_TRANSPORT, auth
    - cd deploy && docker compose up -d --build
    - docker compose exec ollama ollama pull <OLLAMA_MODEL>
+   - Optional Open WebUI (Ollama chat + configure MCP in the UI): same directory,
+     WEBUI_SECRET_KEY="$(openssl rand -hex 32)" docker compose --profile webui up -d
+     UI: http://127.0.0.1:3000 — do not expose publicly without TLS and auth.
 
 3) Systemd (no Docker for the agent)
    - Install Ollama per https://ollama.com/download

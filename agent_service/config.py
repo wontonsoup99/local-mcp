@@ -55,6 +55,24 @@ class Settings(BaseSettings):
         validation_alias="MCP_TRANSPORT",
     )
     mcp_bearer_token: str | None = Field(default=None, validation_alias="MCP_BEARER_TOKEN")
+    mcp_refresh_token: str | None = Field(
+        default=None,
+        validation_alias="MCP_REFRESH_TOKEN",
+        description="OAuth refresh token; access token is refreshed automatically (~1h expiry).",
+    )
+    mcp_oauth_client_id: str = Field(
+        default="openshop-claude",
+        validation_alias="MCP_OAUTH_CLIENT_ID",
+    )
+    mcp_oauth_token_url: str = Field(
+        default="https://mcp.openshopgo.com/oauth/token",
+        validation_alias="MCP_OAUTH_TOKEN_URL",
+    )
+    mcp_refresh_token_file: str | None = Field(
+        default=None,
+        validation_alias="MCP_REFRESH_TOKEN_FILE",
+        description="Optional path to write rotated refresh token (e.g. Docker volume).",
+    )
     mcp_auth_style: Literal["bearer", "raw"] = Field(
         default="bearer",
         validation_alias="MCP_AUTH_STYLE",
@@ -120,7 +138,7 @@ class Settings(BaseSettings):
         s = str(v).strip()
         return s if s else None
 
-    @field_validator("mcp_bearer_token", "mcp_store_slug", mode="before")
+    @field_validator("mcp_bearer_token", "mcp_store_slug", "mcp_refresh_token", mode="before")
     @classmethod
     def strip_optional_strings(cls, v: str | None) -> str | None:
         if v is None:
@@ -137,16 +155,20 @@ class Settings(BaseSettings):
         return v
 
     def merged_mcp_headers(self) -> dict[str, str]:
+        from agent_service.oauth_refresh import access_token_for_mcp
+
         headers: dict[str, str] = {}
         if self.mcp_headers_json:
             extra: dict[str, Any] = json.loads(self.mcp_headers_json)
             for key, val in extra.items():
                 headers[str(key)] = str(val)
-        if self.mcp_bearer_token and not self.mcp_disable_bearer:
-            headers["Authorization"] = _format_authorization_header(
-                self.mcp_bearer_token,
-                self.mcp_auth_style,
-            )
+        if not self.mcp_disable_bearer:
+            token = access_token_for_mcp(self)
+            if token:
+                headers["Authorization"] = _format_authorization_header(
+                    token,
+                    self.mcp_auth_style,
+                )
         if self.mcp_store_slug and not self.mcp_disable_store_slug:
             headers[self.mcp_store_slug_header.strip() or "X-Store-Slug"] = self.mcp_store_slug
         if self.mcp_cookie:

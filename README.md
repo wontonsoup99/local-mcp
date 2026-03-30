@@ -38,7 +38,7 @@ When OAuth is enabled, OpenShop implements **OAuth 2.1 with PKCE (S256)**. There
 
 **Pre-registered `client_id` values:** `openshop-claude`, `openshop-cursor` (each is tied to specific redirect URIs at deploy time—your own app needs a **new** pre-registered client or you must use **refresh tokens** from a completed login).
 
-For this agent, set **`MCP_BEARER_TOKEN`** to the current **access token** and plan to **refresh before 1 hour** (e.g. store **`OPENSHOP_REFRESH_TOKEN`** and call `POST /oauth/token` with `grant_type=refresh_token`—not implemented in the agent yet, but required for production).
+For long-running deployments, set **`MCP_REFRESH_TOKEN`** (from the same `/oauth/token` response as the access token). The agent **refreshes the access token automatically** before it expires (~1 hour) and retries MCP once on **401**. If OpenShop **rotates** the refresh token, set **`MCP_REFRESH_TOKEN_FILE`** to a writable path so the new refresh value is persisted. If you only set **`MCP_BEARER_TOKEN`**, it will expire hourly unless you refresh manually.
 
 ### How Claude authenticates remote MCP (official reference)
 
@@ -57,6 +57,24 @@ See: [Get started with custom connectors using remote MCP | Claude Help Center](
 **Debug:** `python scripts/probe_mcp_auth.py` tries header patterns and shows HTTP status (not secrets).
 
 The server exposes tools such as `oshop_list_orders`, `oshop_get_order`, `oshop_list_products`, …—the agent discovers them via MCP `tools/list`.
+
+## Web UI (Open WebUI + Ollama + MCP)
+
+[Open WebUI](https://openwebui.com/) gives you a browser chat interface over your local **Ollama** instance. Recent versions can also attach **MCP servers** from the admin UI so the model can call tools (similar to this agent’s loop). See the official [MCP feature doc](https://docs.openwebui.com/features/mcp).
+
+**How this relates to `POST /chat`:** this repo’s agent is a **separate** HTTP API (`message` / `reply` JSON). Open WebUI expects **Ollama** and/or **OpenAI-compatible** endpoints—not that custom shape—so you typically use **either**:
+
+1. **Open WebUI → Ollama + MCP in the UI** — add your remote MCP URL and auth in Open WebUI (Admin → settings for external tools / MCP). Your **OAuth token refresh** and headers (`X-Store-Slug`, cookies, etc.) must match what the MCP server expects; confirm Open WebUI’s MCP client supports your provider’s auth model.
+2. **This agent** — best for scripts, `curl`, reverse-proxy APIs, or Cursor; it already wires Ollama + MCP with your `.env`.
+
+**Docker (optional):** the stack in [deploy/docker-compose.yml](deploy/docker-compose.yml) includes an `open-webui` service behind profile `webui` (listens on **127.0.0.1:3000**). Example:
+
+```bash
+cd deploy
+WEBUI_SECRET_KEY="$(openssl rand -hex 32)" docker compose --profile webui up -d
+```
+
+Keep the agent running as usual on **8080** if you still want `POST /chat`. **Alternatives:** [LibreChat](https://www.librechat.ai/), [AnythingLLM](https://anythingllm.com/), or a small custom UI that calls `POST /chat` directly.
 
 ## Deploy
 
