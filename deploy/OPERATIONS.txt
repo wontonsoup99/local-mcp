@@ -23,7 +23,7 @@ VPS operations (Ollama + agent)
    - Use deploy/Caddyfile.example or equivalent nginx config terminating TLS and proxying to 127.0.0.1:8080.
 
 5) Health
-   - curl -s http://127.0.0.1:8080/health
+   - curl -s http://127.0.0.1:8081/health
 
 6) MCP still 401 (OpenShop)
    - Run: python scripts/verify_mcp_env.py (from repo root, venv on). Cookie length should be ~50+ if activitySessionId=uuid.

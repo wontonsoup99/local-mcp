@@ -39,6 +39,60 @@ def _looks_like_store_data_question(user_message: str) -> bool:
     )
     return any(k in msg for k in keywords)
 
+def _is_likely_identifier_field(field_name: str) -> bool:
+    n = (field_name or "").lower()
+    return "id" in n or n.endswith("uuid")
+
+
+def _default_value_for_required_field(field_name: str, prop_schema: Any) -> Any | None:
+    """Return a safe default for common pagination/sort fields.
+
+    We intentionally do NOT guess for identifier fields (customerId/orderId/etc).
+    """
+    n = (field_name or "").strip()
+    if not n:
+        return None
+    if _is_likely_identifier_field(n):
+        return None
+
+    # Hand-tuned defaults for typical OpenShop list/get schemas.
+    if n.lower() == "page":
+        return 1
+    if n.lower() in ("perpage", "per_page", "limit"):
+        return 10
+    if n.lower() == "sortorder":
+        return "DESC"
+    if n.lower() == "sortby":
+        # Prefer a common timestamp-ish field.
+        # If schema provides an enum, we could pick from it, but we keep it simple here.
+        return "createdOn"
+    if n.lower() == "filter":
+        return ""
+
+    # If schema has an enum and includes DESC/ASC, choose DESC when possible.
+    if isinstance(prop_schema, dict):
+        enum = prop_schema.get("enum")
+        if isinstance(enum, list) and enum:
+            lowered = [str(x).lower() for x in enum]
+            if "desc" in lowered:
+                return enum[lowered.index("desc")]
+            if "asc" in lowered:
+                return enum[lowered.index("asc")]
+            # Otherwise fall back to first enum.
+            return enum[0]
+
+        # If type is integer, float, string, provide generic values.
+        t = prop_schema.get("type") if isinstance(prop_schema, dict) else None
+        if t == "integer":
+            return 1
+        if t == "number":
+            return 0
+        if t == "string":
+            return ""
+
+    return None
+
+
 def _extract_json_tool_calls(text: str) -> list[dict[str, Any]] | None:
     """Parse a strict JSON object containing tool calls from model text."""
     if not text:
@@ -142,6 +196,7 @@ async def run_agent_turn(
         {"role": "system", "content": resolve_system_prompt(settings, system_prompt)},
     )
     messages.append({"role": "user", "content": user_message})
+    tool_results_seen = 0
 
     for round_idx in range(settings.max_tool_rounds):
         kwargs: dict[str, Any] = {
@@ -291,19 +346,45 @@ async def run_agent_turn(
                 if (f not in args) or args.get(f) is None
             ]
             if missing_required:
-                text = (
-                    f"Cannot call tool '{name}' because required argument(s) are missing/null: "
-                    f"{', '.join(missing_required)}. "
-                    "Use the available list_* tools to obtain those IDs/values first, then retry."
-                )
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": text,
-                    }
-                )
-                continue
+                # Try to auto-fill only non-identifier fields (pagination/sort/etc).
+                tool_def = tool_defs_by_name.get(name)
+                schema_obj = getattr(tool_def, "inputSchema", None) if tool_def else None
+                props = schema_obj.get("properties") if isinstance(schema_obj, dict) else {}
+
+                filled: dict[str, Any] = {}
+                still_missing: list[str] = []
+                for f in missing_required:
+                    prop_schema = props.get(f) if isinstance(props, dict) else None
+                    dv = _default_value_for_required_field(f, prop_schema)
+                    if dv is None:
+                        still_missing.append(f)
+                    else:
+                        filled[f] = dv
+
+                if filled:
+                    args.update(filled)
+                    # Recompute if anything still missing.
+                    still_missing = [
+                        f
+                        for f in missing_required
+                        if (f not in args) or args.get(f) is None
+                    ]
+
+                if still_missing:
+                    text = (
+                        f"Cannot call tool '{name}' because required argument(s) are missing/null: "
+                        f"{', '.join(still_missing)}. "
+                        "Use the available list_* tools to obtain the required IDs/values first, then retry."
+                    )
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": text,
+                        }
+                    )
+                    tool_results_seen += 1
+                    continue
             try:
                 tr = await session.call_tool(name, args)
                 text = _format_tool_result(tr)
@@ -318,6 +399,7 @@ async def run_agent_turn(
                     "content": text,
                 }
             )
+            tool_results_seen += 1
 
     # Tool-round budget exhausted. Ask the model to produce an answer based on
     # the tool results we already have (without requesting further tool calls).
@@ -325,4 +407,12 @@ async def run_agent_turn(
         model=settings.ollama_model,
         messages=messages,
     )
-    return (final.choices[0].message.content or "").strip() or ""
+    reply = (final.choices[0].message.content or "").strip() or ""
+
+    if _looks_like_store_data_question(user_message) and tool_results_seen == 0:
+        return (
+            "I couldn't retrieve store data for this question because no OpenShop `oshop_*` tool results "
+            "were produced. Check `/health/mcp` and MCP auth, then try again."
+        )
+
+    return reply
