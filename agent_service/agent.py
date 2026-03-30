@@ -72,6 +72,7 @@ async def run_agent_turn(
 
     listed = await session.list_tools()
     tools = _mcp_tools_to_openai(listed)
+    available_tool_names = {t.name for t in listed.tools}
     if not tools:
         logger.warning("MCP server returned no tools; model will run without tools.")
 
@@ -109,6 +110,21 @@ async def run_agent_turn(
             fn = tc.function
             name = fn.name
             raw = fn.arguments or "{}"
+            if name not in available_tool_names:
+                # Keep the agent "in sync" with the MCP server's actual tool list.
+                # If the model hallucinates a tool name, we do not execute it.
+                text = (
+                    f"Invalid tool requested by the model: '{name}'. "
+                    f"Available tools are: {', '.join(sorted(available_tool_names))}"
+                )
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": text,
+                    }
+                )
+                continue
             try:
                 args = json.loads(raw) if isinstance(raw, str) else dict(raw)
             except json.JSONDecodeError:
